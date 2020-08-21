@@ -1,8 +1,6 @@
 FROM ubuntu:18.04
 
-ARG VERSION=${VERSION:-3.13.0}
-ENV VERSION=$VERSION
-RUN echo $VERSION
+ARG VERSION
 
 # Keep upstart from complaining
 RUN dpkg-divert --local --rename --add /sbin/initctl
