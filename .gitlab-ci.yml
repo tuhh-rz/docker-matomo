@@ -1,110 +1,130 @@
 variables:
-    CONTAINER_RELEASE_IMAGE: docker.rz.tu-harburg.de/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME
-    LATEST_VERSION: '3'
-    APP: 'Matomo'
-    APP_OVERVIEW_URL: https://cgi.tu-harburg.de/~rztwww/Software/program_file.json
-    KEY: "${APP} ${VERSION}"
+  CONTAINER_RELEASE_IMAGE: docker.rz.tu-harburg.de/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME
+  LATEST_VERSION: "4"
+  MAPPING: "4:4,3:3"
+  APP: 'Matomo'
+  APP_OVERVIEW_URL: https://cgi.tu-harburg.de/~rztwww/Software/program_file.json
+  KEY: "${APP} ${VERSION}"
 
-.build_script_template:
-  script: &build_script_definition
-    - pwd
+.before_script: &before_script
+  - structure=$(curl -s ${APP_OVERVIEW_URL} | jq --arg KEY "$KEY" --arg APP "$APP" --raw-output '.[$APP] | .[$KEY]')
+  - if [[ -z "$structure" ]] || [[ $structure == "null" ]] || [[ $structure == "{}" ]]; then echo "UNKNOWN $APP $KEY"; exit 1; fi
+  - echo $structure
 
-    - version=$(curl -s ${APP_OVERVIEW_URL} | jq --arg KEY "$KEY" --arg APP "$APP" --raw-output '.[$APP] | .[$KEY] | .version')
-    - if [[ -z $version ]] || [[ $version == "null" ]]; then exit 1; fi
-    - version=$(echo $version | sed -e 's/%2B/+/g')
+  - version=$(jq --raw-output '.version' <<<"$structure")
+  - if [[ -z $version ]] || [[ $version == "null" ]]; then echo "NO VERSION"; exit 1; fi
+  - version=$(echo $version | sed -e 's/%2B/+/g')
 
-    # - download=$(curl -s ${APP_OVERVIEW_URL} | jq --arg KEY "$KEY" --arg APP "$APP" --raw-output '.[$APP] | .[$KEY] | .download')
-    # - if [[ -z $download ]] || [[ $download == "null" ]]; then exit 1; fi
+  - download=$(jq --raw-output '.download' <<<"$structure")
+  - if [[ -z $download ]] || [[ $download == "null" ]]; then echo "NO DOWNLOAD"; exit 1; fi
 
-    - sudo docker build --build-arg DOWNLOAD="${download}" --build-arg VERSION="${version}" --no-cache --pull -t "${CONTAINER_RELEASE_IMAGE}":"${VERSION}${VARIANT:+-$VARIANT}" "${VERSION}"/"${VARIANT}"
+.build_script: &build_script
+  - sudo docker build --build-arg DOWNLOAD="${download}" --build-arg VERSION="${version}" --no-cache --pull -t "${CONTAINER_RELEASE_IMAGE}":"${VERSION}${VARIANT:+-$VARIANT}" "${VERSION}"/"${VARIANT}"
 
-.build_branches_script_template:
-  script: &build_branches_script_definition
-    - pwd
+.build_branches_script: &build_branches_script
+  - sudo docker build --build-arg DOWNLOAD="${download}" --build-arg VERSION="${version}" --pull -t "${CONTAINER_RELEASE_IMAGE}":"${VERSION}${VARIANT:+-$VARIANT}"_"${CI_COMMIT_REF_NAME}" "${VERSION}"/"${VARIANT}"
 
-    - version=$(curl -s ${APP_OVERVIEW_URL} | jq --arg KEY "$KEY" --arg APP "$APP" --raw-output '.[$APP] | .[$KEY] | .version')
-    - if [[ -z $version ]] || [[ $version == "null" ]]; then exit 1; fi
-    - version=$(echo $version | sed -e 's/%2B/+/g')
+.deploy_script: &deploy_script
+  - sudo docker push "${CONTAINER_RELEASE_IMAGE}":"${VERSION}${VARIANT:+-$VARIANT}"
+  - if [ ! -z ${LATEST_VERSION} ] && [ "${LATEST_VERSION}" == "${VERSION}${VARIANT:+-$VARIANT}" ]; then sudo docker tag "${CONTAINER_RELEASE_IMAGE}":"${VERSION}${VARIANT:+-$VARIANT}" "${CONTAINER_RELEASE_IMAGE}:latest"; sudo docker push "${CONTAINER_RELEASE_IMAGE}:latest"; fi
 
-    # - download=$(curl -s ${APP_OVERVIEW_URL} | jq --arg KEY "$KEY" --arg APP "$APP" --raw-output '.[$APP] | .[$KEY] | .download')
-    # - if [[ -z $download ]] || [[ $download == "null" ]]; then exit 1; fi
-
-    - sudo docker build --build-arg DOWNLOAD="${download}" --build-arg VERSION="${version}" --pull -t "${CONTAINER_RELEASE_IMAGE}":"${VERSION}${VARIANT:+-$VARIANT}"_"${CI_COMMIT_REF_NAME}" "${VERSION}"/"${VARIANT}"    
-
-.build_before_script_template:
-  before_script: &build_before_script_definition
-    - pwd
-    - git submodule update --init --recursive
-
-.deploy_script_template:
-  script: &deploy_script_definition
-    - pwd
-    - sudo docker push "${CONTAINER_RELEASE_IMAGE}":"${VERSION}${VARIANT:+-$VARIANT}"
-    - if [ ! -z ${LATEST_VERSION} ] && [ "${LATEST_VERSION}" == "${VERSION}${VARIANT:+-$VARIANT}" ]; then sudo docker tag "${CONTAINER_RELEASE_IMAGE}":"${VERSION}${VARIANT:+-$VARIANT}" "${CONTAINER_RELEASE_IMAGE}:latest"; sudo docker push "${CONTAINER_RELEASE_IMAGE}:latest"; fi
-
-.build_branches_before_script_template:
-  before_script: &build_branches_before_script_definition
-    - pwd
-    - git submodule update --init --recursive
-
-.deploy_branches_script_template:
-  script: &deploy_branches_script_definition
-    - pwd
-    - sudo docker push "${CONTAINER_RELEASE_IMAGE}":"${VERSION}${VARIANT:+-$VARIANT}"_"${CI_COMMIT_REF_NAME}"
-
+.deploy_branches_script: &deploy_branches_script
+  - sudo docker push "${CONTAINER_RELEASE_IMAGE}":"${VERSION}${VARIANT:+-$VARIANT}"_"${CI_COMMIT_REF_NAME}"
 
 stages:
     - build
     - deploy
 
-build:3:
-    stage: build
-    retry: 2
-    only:
-        - master
-    tags:
-        - build
-    variables:
-        VERSION: '3'
-        VARIANT: ''
-    before_script: *build_before_script_definition
-    script: *build_script_definition
+deploy:4:
+  stage: deploy
+  needs: ["build:4"]
+  tags:
+    - deploy
+  rules:
+    - if: '$CI_COMMIT_REF_NAME == "master"'
+      changes:
+        - 4/**/*
+  variables:
+    VERSION: "4"
+    VARIANT: ""
+  script: 
+    - *deploy_script
+
+build:branches:4:
+  stage: build
+  retry: 2
+  rules:
+    - if: '$CI_COMMIT_REF_NAME != "master"'
+      changes:
+        - 4/**/*
+  tags:
+    - build
+  variables:
+    VERSION: "4"
+    VARIANT: ""
+  before_script:
+    - *before_script
+  script: 
+    - *build_branches_script
+
+deploy:branches:4:
+  stage: deploy
+  needs: ["build:branches:4"]
+  tags:
+    - deploy
+  rules:
+    - if: '$CI_COMMIT_REF_NAME != "master"'
+      changes:
+        - 4/**/*
+  variables:
+    VERSION: "4"
+    VARIANT: ""
+  script:
+    - *deploy_branches_script
 
 deploy:3:
-    stage: deploy
-    tags:
-        - deploy
-    only:
-        - master
-    variables:
-        VERSION: '3'
-        VARIANT: ''
-    script: *deploy_script_definition
+  stage: deploy
+  needs: ["build:3"]
+  tags:
+    - deploy
+  rules:
+    - if: '$CI_COMMIT_REF_NAME == "master"'
+      changes:
+        - 3/**/*
+  variables:
+    VERSION: "3"
+    VARIANT: ""
+  script: 
+    - *deploy_script
 
 build:branches:3:
-    stage: build
-    retry: 2
-    only:
-        - branches
-    except:
-        - master
-    tags:
-        - build
-    variables:
-        VERSION: '3'
-        VARIANT: ''
-    before_script: *build_branches_before_script_definition
-    script: *build_branches_script_definition
+  stage: build
+  retry: 2
+  rules:
+    - if: '$CI_COMMIT_REF_NAME != "master"'
+      changes:
+        - 3/**/*
+  tags:
+    - build
+  variables:
+    VERSION: "3"
+    VARIANT: ""
+  before_script:
+    - *before_script
+  script: 
+    - *build_branches_script
 
 deploy:branches:3:
-    stage: deploy
-    tags:
-        - deploy
-    only:
-        - branches
-    except:
-        - master
-    variables:
-        VERSION: '3'
-        VARIANT: ''
-    script: *deploy_branches_script_definition
+  stage: deploy
+  needs: ["build:branches:3"]
+  tags:
+    - deploy
+  rules:
+    - if: '$CI_COMMIT_REF_NAME != "master"'
+      changes:
+        - 3/**/*
+  variables:
+    VERSION: "3"
+    VARIANT: ""
+  script:
+    - *deploy_branches_script

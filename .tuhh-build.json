@@ -17,6 +17,9 @@
     }
   ],
   "image-tags": {
+    "4": {
+      "action": "build"
+    },
     "3": {
       "action": "build"
     }
