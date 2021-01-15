@@ -22,6 +22,7 @@ RUN apt-get -y upgrade
 RUN apt-get -y install \
   apache2 \
   cron \
+  curl \
   gawk \
   libapache2-mod-php \
   php-cli \
