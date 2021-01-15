@@ -35,6 +35,23 @@ stages:
     - build
     - deploy
 
+build:4:
+  stage: build
+  retry: 2
+  rules:
+    - if: '$CI_COMMIT_REF_NAME == "master"'
+      changes:
+        - 4/**/*
+  tags:
+    - build
+  variables:
+    VERSION: "4"
+    VARIANT: ""
+  before_script:
+    - *before_script
+  script:
+    - *build_script
+
 deploy:4:
   stage: deploy
   needs: ["build:4"]
@@ -82,6 +99,23 @@ deploy:branches:4:
   script:
     - *deploy_branches_script
 
+build:3:
+  stage: build
+  retry: 2
+  rules:
+    - if: '$CI_COMMIT_REF_NAME == "master"'
+      changes:
+        - 3/**/*
+  tags:
+    - build
+  variables:
+    VERSION: "3"
+    VARIANT: ""
+  before_script:
+    - *before_script
+  script:
+    - *build_script
+    
 deploy:3:
   stage: deploy
   needs: ["build:3"]
